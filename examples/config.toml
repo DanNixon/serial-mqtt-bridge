@@ -1,0 +1,13 @@
+[broker]
+address = "tcp://broker.hivemq.com"
+client_id = "serial-mqtt-bridge-test"
+
+[topics]
+transmit = "thermal_printer/tx"
+receive = "thermal_printer/rx"
+receive_control = "thermal_printer/rx/control"
+availability = "thermal_printer/availability"
+
+[serial]
+device = "/dev/ttyUSB0"
+baud = 9600
