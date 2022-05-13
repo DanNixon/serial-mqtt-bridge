@@ -11,3 +11,4 @@ availability = "thermal_printer/availability"
 [serial]
 device = "/dev/ttyUSB0"
 baud = 9600
+timeout = "3s"

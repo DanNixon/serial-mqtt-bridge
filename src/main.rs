@@ -64,7 +64,10 @@ fn main() -> Result<()> {
     client.publish(Message::new(&config.topics.availability, "online", 1))?;
     log::info!("Connected to MQTT broker");
 
-    let mut port = serialport::new(config.serial.device, config.serial.baud).open()?;
+    log::debug!("Opening serial port with config: {:?}", config.serial);
+    let mut port = serialport::new(config.serial.device, config.serial.baud)
+        .timeout(config.serial.timeout)
+        .open()?;
 
     for msg in rx.iter() {
         if let Some(msg) = msg {

@@ -1,6 +1,6 @@
 use anyhow::Result;
 use serde::Deserialize;
-use std::{fs, path::Path};
+use std::{fs, path::Path, time::Duration};
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct Config {
@@ -37,4 +37,6 @@ pub(crate) struct TopicsConfig {
 pub(crate) struct SerialConfig {
     pub device: String,
     pub baud: u32,
+    #[serde(with = "humantime_serde")]
+    pub timeout: Duration,
 }
