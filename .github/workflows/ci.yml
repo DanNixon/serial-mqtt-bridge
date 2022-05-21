@@ -5,6 +5,8 @@ on:
   push:
     branches:
       - main
+    tags:
+      - 'v*'
   pull_request:
 
 jobs:
@@ -43,3 +45,52 @@ jobs:
 
       - name: Build and Test
         run: cargo test
+
+  release-builds:
+    name: Build
+    if: ${{ github.ref_name == 'main' || github.ref_type == 'tag' }}
+    needs:
+      - build-and-test
+      - formatting-and-quality
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        platform:
+          - x86_64-unknown-linux-musl
+          - aarch64-unknown-linux-musl
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Setup
+        run: cargo install cross
+
+      - name: Build
+        id: cross-build
+        run: |
+          cross build --release --target ${{ matrix.platform }}
+          cp "target/${{ matrix.platform }}/release/serial-mqtt-bridge" "serial-mqtt-bridge-${{ matrix.platform }}"
+
+      - name: Store binary
+        uses: actions/upload-artifact@v3
+        with:
+          name: "serial-mqtt-bridge-${{ matrix.platform }}"
+          path: "serial-mqtt-bridge-${{ matrix.platform }}"
+
+  release:
+    name: Release
+    if: ${{ github.ref_type == 'tag' }}
+    needs:
+      - release-builds
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download binaries
+        uses: actions/download-artifact@v3
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: serial-mqtt-bridge-*/serial-mqtt-bridge-*
+          fail_on_unmatched_files: true
