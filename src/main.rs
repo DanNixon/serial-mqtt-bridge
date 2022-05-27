@@ -4,7 +4,7 @@ use crate::config::Config;
 use anyhow::Result;
 use clap::Parser;
 use paho_mqtt::{Client, ConnectOptionsBuilder, CreateOptionsBuilder, Message};
-use std::{path::PathBuf, thread, time::Duration};
+use std::{env, path::PathBuf, thread, time::Duration};
 
 /// A bridge between a serial port and MQTT
 #[derive(Clone, Debug, Parser)]
@@ -38,6 +38,7 @@ fn main() -> Result<()> {
         CreateOptionsBuilder::new()
             .server_uri(&config.broker.address)
             .client_id(&config.broker.client_id)
+            .persistence(env::temp_dir())
             .finalize(),
     )?;
 
