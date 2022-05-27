@@ -1,7 +1,7 @@
 mod config;
 
 use crate::config::Config;
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use clap::Parser;
 use paho_mqtt::{Client, ConnectOptionsBuilder, CreateOptionsBuilder, Message};
 use std::{env, path::PathBuf, thread, time::Duration};
@@ -12,19 +12,6 @@ use std::{env, path::PathBuf, thread, time::Duration};
 struct Cli {
     /// Configuration file
     config: PathBuf,
-}
-
-fn try_reconnect(cli: &Client) -> bool {
-    log::warn!("Connection lost. Waiting to retry connection");
-    for _ in 0..12 {
-        thread::sleep(Duration::from_millis(5000));
-        if cli.reconnect().is_ok() {
-            log::info!("Successfully reconnected");
-            return true;
-        }
-    }
-    log::error!("Unable to reconnect after several attempts.");
-    false
 }
 
 fn main() -> Result<()> {
@@ -104,17 +91,37 @@ fn main() -> Result<()> {
                     }
                 }
             }
-        } else if client.is_connected() || !try_reconnect(&client) {
-            break;
+        } else if !client.is_connected() {
+            if let Err(e) = try_reconnect(&client) {
+                log::error!("{}", e);
+                break;
+            }
         }
     }
 
-    client.publish(lwt)?;
-
     if client.is_connected() {
+        client.publish(lwt)?;
+
         log::info!("Disconnecting from MQTT broker");
         client.disconnect(None)?;
     }
 
     Ok(())
+}
+
+fn try_reconnect(c: &Client) -> Result<()> {
+    for i in 0..300 {
+        log::info!("Attempting reconnection {}...", i);
+        match c.reconnect() {
+            Ok(_) => {
+                log::info!("Reconnection successful");
+                return Ok(());
+            }
+            Err(e) => {
+                log::error!("Reconnection failed: {}", e);
+            }
+        }
+        thread::sleep(Duration::from_secs(1));
+    }
+    Err(anyhow!("Failed to reconnect to broker"))
 }
