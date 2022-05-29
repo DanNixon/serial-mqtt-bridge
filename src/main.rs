@@ -1,10 +1,13 @@
 mod config;
 
 use crate::config::Config;
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use clap::Parser;
-use paho_mqtt::{Client, ConnectOptionsBuilder, CreateOptionsBuilder, Message};
-use std::{env, path::PathBuf, thread, time::Duration};
+use futures::executor::block_on;
+use paho_mqtt::{
+    AsyncClient, ConnectOptionsBuilder, CreateOptionsBuilder, Message, PersistenceType,
+};
+use std::{path::PathBuf, time::Duration};
 
 /// A bridge between a serial port and MQTT
 #[derive(Clone, Debug, Parser)]
@@ -21,44 +24,59 @@ fn main() -> Result<()> {
     let config = Config::load(&args.config)?;
     log::debug!("Config: {:#?}", config);
 
-    let client = Client::new(
-        CreateOptionsBuilder::new()
-            .server_uri(&config.broker.address)
-            .client_id(&config.broker.client_id)
-            .persistence(env::temp_dir())
-            .finalize(),
-    )?;
+    block_on(async {
+        let client = AsyncClient::new(
+            CreateOptionsBuilder::new()
+                .server_uri(&config.broker.address)
+                .client_id(&config.broker.client_id)
+                .persistence(PersistenceType::None)
+                .finalize(),
+        )?;
 
-    let lwt = Message::new(&config.topics.availability, "offline", 1);
+        let transmit_topic = config.topics.transmit.clone();
+        let receive_control_topic = config.topics.receive_control.clone();
+        client.set_connected_callback(move |c| {
+            log::info!("Connected to MQTT broker");
+            c.subscribe(&transmit_topic, 2);
+            c.subscribe(&receive_control_topic, 2);
+        });
 
-    client.connect(
-        ConnectOptionsBuilder::new()
-            .user_name(&config.broker.username)
-            .password(&config.broker.password)
-            .will_message(lwt.clone())
-            .finalize(),
-    )?;
+        let lwt = Message::new(&config.topics.availability, "offline", 1);
 
-    let rx = client.start_consuming();
+        let response = client
+            .connect(
+                ConnectOptionsBuilder::new()
+                    .clean_session(true)
+                    .automatic_reconnect(Duration::from_secs(1), Duration::from_secs(5))
+                    .user_name(&config.broker.username)
+                    .password(&config.broker.password)
+                    .will_message(lwt.clone())
+                    .finalize(),
+            )
+            .await?;
 
-    client.subscribe(&config.topics.transmit, 2)?;
-    client.subscribe(&config.topics.receive_control, 2)?;
+        log::info!(
+            "Using MQTT version {}",
+            response.connect_response().unwrap().mqtt_version
+        );
 
-    let ctrlc_client = client.clone();
-    ctrlc::set_handler(move || {
-        ctrlc_client.stop_consuming();
-    })?;
+        let rx = client.start_consuming();
 
-    client.publish(Message::new(&config.topics.availability, "online", 1))?;
-    log::info!("Connected to MQTT broker");
+        let ctrlc_client = client.clone();
+        ctrlc::set_handler(move || {
+            ctrlc_client.stop_consuming();
+        })?;
 
-    log::debug!("Opening serial port with config: {:?}", config.serial);
-    let mut port = serialport::new(config.serial.device, config.serial.baud)
-        .timeout(config.serial.timeout)
-        .open()?;
+        client
+            .publish(Message::new(&config.topics.availability, "online", 1))
+            .await?;
 
-    for msg in rx.iter() {
-        if let Some(msg) = msg {
+        log::debug!("Opening serial port with config: {:?}", config.serial);
+        let mut port = serialport::new(config.serial.device, config.serial.baud)
+            .timeout(config.serial.timeout)
+            .open()?;
+
+        for msg in rx.iter().flatten() {
             if msg.topic() == config.topics.transmit {
                 log::info!("Tx message: {:?}", msg);
                 if let Err(e) = port.write(msg.payload()) {
@@ -73,11 +91,14 @@ fn main() -> Result<()> {
                         match port.read(buffer.as_mut_slice()) {
                             Ok(rx_bytes) => {
                                 log::info!("Received {} bytes from serial port", rx_bytes);
-                                if let Err(e) = client.publish(Message::new(
-                                    &config.topics.receive,
-                                    &buffer[..rx_bytes],
-                                    1,
-                                )) {
+                                if let Err(e) = client
+                                    .publish(Message::new(
+                                        &config.topics.receive,
+                                        &buffer[..rx_bytes],
+                                        1,
+                                    ))
+                                    .await
+                                {
                                     log::error!("Failed publish received bytes via MQTT: {}", e);
                                 }
                             }
@@ -91,37 +112,15 @@ fn main() -> Result<()> {
                     }
                 }
             }
-        } else if !client.is_connected() {
-            if let Err(e) = try_reconnect(&client) {
-                log::error!("{}", e);
-                break;
-            }
         }
-    }
 
-    if client.is_connected() {
-        client.publish(lwt)?;
+        if client.is_connected() {
+            client.publish(lwt).await?;
 
-        log::info!("Disconnecting from MQTT broker");
-        client.disconnect(None)?;
-    }
-
-    Ok(())
-}
-
-fn try_reconnect(c: &Client) -> Result<()> {
-    for i in 0..300 {
-        log::info!("Attempting reconnection {}...", i);
-        match c.reconnect() {
-            Ok(_) => {
-                log::info!("Reconnection successful");
-                return Ok(());
-            }
-            Err(e) => {
-                log::error!("Reconnection failed: {}", e);
-            }
+            log::info!("Disconnecting from MQTT broker");
+            client.disconnect(None).await?;
         }
-        thread::sleep(Duration::from_secs(1));
-    }
-    Err(anyhow!("Failed to reconnect to broker"))
+
+        Ok(())
+    })
 }

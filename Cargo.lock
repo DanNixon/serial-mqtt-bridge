@@ -572,6 +572,7 @@ dependencies = [
  "clap",
  "ctrlc",
  "env_logger",
+ "futures",
  "humantime-serde",
  "log",
  "paho-mqtt",
