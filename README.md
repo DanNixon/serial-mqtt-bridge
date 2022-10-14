@@ -1,4 +1,7 @@
-# Serial-MQTT bridge [![CI](https://github.com/DanNixon/serial-mqtt-bridge/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/DanNixon/serial-mqtt-bridge/actions/workflows/ci.yml)
+# Serial-MQTT bridge
+
+[![CI](https://github.com/DanNixon/serial-mqtt-bridge/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/DanNixon/serial-mqtt-bridge/actions/workflows/ci.yml)
+[![dependency status](https://deps.rs/repo/github/dannixon/serial-mqtt-bridge/status.svg)](https://deps.rs/repo/github/dannixon/serial-mqtt-bridge)
 
 A simple bridge that provides access to a serial device via MQTT.
 
